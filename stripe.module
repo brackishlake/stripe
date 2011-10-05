@@ -26,12 +26,7 @@ function stripe_help($path, $arg) {
  * Implements hook_permission().
  */
 function stripe_permission() {
-  return array(
-    'administer stripe' => array(
-      'title' => t('Administer the Stripe module'),
-      'description' => t('Allows access to configure API Keys and to the test form.'),
-    ),
-  );
+  return array('administer stripe');
 }
 
 /**
@@ -57,7 +52,7 @@ function stripe_init() {
  * Implements hook_menu().
  */
 function stripe_menu() {
-  $items['admin/config/stripe'] = array(
+  $items['admin/stripe'] = array(
     'title' => 'Stripe',
     'description' => 'List of what the stripe module offers.',
     'position' => 'right',
@@ -67,7 +62,7 @@ function stripe_menu() {
     'file' => 'stripe.admin.inc',
   );
 
-  $items['admin/config/stripe/keys'] = array(
+  $items['admin/stripe/keys'] = array(
     'title' => 'Configuration',
     'description' => 'Enter API Keys and set which one should be active.',
     'page callback' => 'drupal_get_form',
@@ -76,11 +71,19 @@ function stripe_menu() {
     'file' => 'stripe.admin.inc',
   );
 
-  $items['admin/config/stripe/test'] = array(
+  $items['admin/stripe/test'] = array(
     'title' => 'Test form',
     'description' => 'A form for testing Stripe responses.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('stripe_admin_test'),
+    'access arguments' => array('administer stripe'),
+    'file' => 'stripe.admin.inc',
+  );
+  
+  $items['admin/stripe/payments'] = array(
+    'title' => 'Payments',
+    'description' => 'A list of payments received.',
+    'page callback' => 'stripe_admin_payments',
     'access arguments' => array('administer stripe'),
     'file' => 'stripe.admin.inc',
   );

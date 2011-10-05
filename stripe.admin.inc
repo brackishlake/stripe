@@ -177,6 +177,53 @@ function stripe_admin_test_submit($form, &$form_state) {
 		"card" => $token,
 		"description" => "payinguser@example.com")
 	);
+}
+
+/**
+ * A list of payments received. There's no local storage for this information, so it's a request every time right now.
+ * This also needs pagination. Default response for Stripe is 10, offset 0.
+ */
+function stripe_admin_payments() {
+	$active_key_name = variable_get('stripe_active_key', '');
+	$active_key = variable_get('stripe_' . $active_key_name, '');
+
+	$header = array(
+		t('Date'),
+		t('Name'),
+		t('Status'),
+		t('Total'),
+    );
+    
+    $rows = array();
+    
+    Stripe::setApiKey($active_key);
+    
+    $charges = Stripe_Charge::all();
+    
+    
+    foreach($charges['data'] as $charge) {
+    	$row = array();
+    	
+    	$row[] = date('m-d-Y h:i:s A', $charge['created']);
+    	$row[] = $charge['card']['name'];
+    	$row[] = ($charge['paid'] == 1) ? 'Paid' : 'Unpaid';
+    	$row[] = money_format('$%i', stripe_transform_amount($charge['amount']));
+    	
+    	$rows[] = $row;
+    }
 	
-	dpm($charge);
+	return theme('table', $header, $rows);
+}
+
+/**
+ * Convert from cents to dollars.
+ */
+function stripe_transform_amount($amount) {
+	if( (int)$amount == $amount) {
+		$amount = (float)$amount / 100;
+	} else {
+		$amount = $amount * 100;
+	}
+	
+	return $amount;
 }
