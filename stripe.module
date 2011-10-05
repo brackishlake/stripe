@@ -87,6 +87,142 @@ function stripe_menu() {
     'access arguments' => array('administer stripe'),
     'file' => 'stripe.admin.inc',
   );
+  
+  $items['checkout'] = array(
+  	'title' => 'Checkout',
+  	'page callback' => 'drupal_get_form',
+  	'page arguments' => array('stripe_checkout_form'),
+  	'access arguments' => array('access content'),
+  );
 
   return $items;
+}
+
+/**
+ * May be necessary for the future if we want to handle a cart.
+ */
+function stripe_checkout_id() {
+	$id = ($GLOBALS['user']->uid > 0) ? $GLOBALS['user']->uid : md5(uniqid(rand(), TRUE));
+	
+	$_SESSION['stripe_id'] = $id;
+	
+  return $id;
+}
+
+/**
+ * Helper function to convert between cents and dollars.
+ */
+function stripe_transform_amount($amount) {
+	if( (int)$amount == $amount) {
+		$amount = (float)$amount / 100;
+	} else {
+		$amount = $amount * 100;
+	}
+	
+	return $amount;
+}
+
+/**
+ * Set the dollar amount and store it in session so it's available to checkout form.
+ * Need to really think about the security of this. Although the session value would
+ * only be used on the checkout form and used to set the amount in JS for Stripe.
+ * The user would see that same amount and confirm the transaction - at which point
+ * the session variable is not used. Still, not an area of expertise for me.
+ *
+ * Always set in CENTS so it's usable on checkout submit.
+ */
+function stripe_set_amount($amount) {
+	$_SESSION['stripe_amount'] = (int)stripe_transform_amount((float)$amount);
+}
+
+/**
+ * Create a checkout form and accept an order amount.
+ */
+function stripe_checkout_form(&$form_state) {
+	$amount = money_format('$%i', stripe_transform_amount($_SESSION['stripe_amount']));
+	
+	$active_key_name = variable_get('stripe_active_key', '');
+  $active_key = variable_get('stripe_' . $active_key_name, '');
+  
+  if ($active_key !== '' && is_numeric($_SESSION['stripe_amount'])) {
+  	drupal_add_js("Stripe.setPublishableKey('{$active_key}');", 'inline');
+  	
+  	drupal_add_js(drupal_get_path('module', 'stripe') . '/stripe.js', 'file');
+  	
+  	$settings['stripeConfig'] = array();
+	
+		drupal_add_js($settings, 'setting');
+  }
+
+	$form['amount'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Amount'),
+		'#value' => $amount,
+		'#disabled' => TRUE,
+	);
+	
+	$form['card_number'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Card Number'),
+    '#size' => 20,
+    '#default_value' => '4242424242424242',
+    '#attributes' => array(
+      'autocomplete' => 'off',
+      'class' => 'card-number',
+    ),
+  );
+
+  $form['card_cvc'] = array(
+    '#type' => 'textfield',
+    '#title' => t('CVC'),
+    '#size' => 4,
+    '#default_value' => '123',
+    '#attributes' => array(
+      'autocomplete' => 'off',
+      'class' => 'card-cvc',
+    ),
+  );
+
+  $form['card_expiry_month'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Expiration Month'),
+    '#size' => 2,
+    '#default_value' => '10',
+    '#attributes' => array(
+      'class' => 'card-expiry-month',
+    ),
+  );
+
+  $form['card_expiry_year'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Expiration Year'),
+    '#size' => 2,
+    '#default_value' => '2020',
+    '#attributes' => array(
+      'class' => 'card-expiry-year',
+    ),
+  );
+  
+  $form['submit'] = array(
+  	'#type' => 'submit',
+  	'#value' => t('Pay !i', array('!i' => $amount)),
+  );
+
+  return $form;
+}
+
+/**
+ * Submit handler for checkout form.
+ */
+function stripe_checkout_form_submit($form, &$form_state) {
+	$token = $_POST['stripeToken'];
+	
+	Stripe::setApiKey($form_state['storage']['key']);
+	
+	$charge = Stripe_Charge::create(array(
+		"amount" => $_SESSION['stripe_amount'],
+		"currency" => "usd",
+		"card" => $token,
+		"description" => "payinguser@example.com")
+	);
 }

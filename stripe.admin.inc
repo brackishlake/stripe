@@ -76,6 +76,9 @@ function stripe_admin_config_submit($form, &$form_state) {
 	variable_set('stripe_active_key', $form_state['values']['stripe_active_key']);
 }
 
+/**
+ * Process transactions in a virtual terminal.
+ */
 function stripe_admin_test(&$form_state) {
   $form['card_number'] = array(
     '#type' => 'textfield',
@@ -213,17 +216,4 @@ function stripe_admin_payments() {
     }
 	
 	return theme('table', $header, $rows);
-}
-
-/**
- * Convert from cents to dollars.
- */
-function stripe_transform_amount($amount) {
-	if( (int)$amount == $amount) {
-		$amount = (float)$amount / 100;
-	} else {
-		$amount = $amount * 100;
-	}
-	
-	return $amount;
 }
