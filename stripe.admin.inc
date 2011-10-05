@@ -9,6 +9,8 @@
  * Menu callback: configure Stripe API Keys
  */
 function stripe_admin_keys() {
+	$form['#tree'] = TRUE;
+
   $form['API_Keys'] = array(
     '#type' => 'fieldset',
     '#title' => t('API Keys'),
@@ -37,9 +39,9 @@ function stripe_admin_keys() {
     );
     $form['API_Keys']['active_' . $field][$field] = array(
       '#type' => 'radio',
-      '#title' => t('Activate'),
+      '#title' => ($active_key == $field) ? t('Active') : t('Activate'),
       '#return_value' => $field,
-      '#default_value' => $active_key == $field,
+      '#default_value' => ($active_key == $field) ? $active_key : 0,
       '#parents' => array('stripe_active_key'),
     );
     if ($active_key == $field) {
@@ -67,31 +69,14 @@ function stripe_admin_keys() {
  * Process result from stripe config form.
  */
 function stripe_admin_config_submit($form, &$form_state) {
-
+	foreach($form_state['values']['API_Keys'] as $field => $value) {
+		variable_set($field, $value);
+	}
+	
+	variable_set('stripe_active_key', $form_state['values']['stripe_active_key']);
 }
 
-function stripe_admin_test() {
-/* From example on https://stripe.com/api
-
-<form action="" method="POST" id="payment-form">
-    <div class="form-row">
-        <label>Card Number</label>
-        <input type="text" size="20" autocomplete="off" class="card-number"/>
-    </div>
-    <div class="form-row">
-        <label>CVC</label>
-        <input type="text" size="4" autocomplete="off" class="card-cvc"/>
-    </div>
-    <div class="form-row">
-        <label>Expiration (MM/YYYY)</label>
-        <input type="text" size="2" class="card-expiry-month"/>
-        <span> / </span>
-        <input type="text" size="4" class="card-expiry-year"/>
-    </div>
-    <button type="submit" class="submit-button">Submit Payment</button>
-</form>
-
-*/
+function stripe_admin_test(&$form_state) {
   $form['card_number'] = array(
     '#type' => 'textfield',
     '#title' => t('Card Number:'),
@@ -99,7 +84,7 @@ function stripe_admin_test() {
     '#default_value' => '4242424242424242',
     '#attributes' => array(
       'autocomplete' => 'off',
-      'class' => array('card-number'),
+      'class' => 'card-number',
     ),
   );
 
@@ -110,27 +95,27 @@ function stripe_admin_test() {
     '#default_value' => '123',
     '#attributes' => array(
       'autocomplete' => 'off',
-      'class' => array('card-cvc'),
+      'class' => 'card-cvc',
     ),
   );
 
   $form['card_expiry_month'] = array(
     '#type' => 'textfield',
-    '#title' => t('Expiration (MM/YYYY):'),
+    '#title' => t('Expiration Month'),
     '#size' => 2,
     '#default_value' => '10',
     '#attributes' => array(
-      'class' => array('card-expiry-month'),
+      'class' => 'card-expiry-month',
     ),
   );
 
   $form['card_expiry_year'] = array(
     '#type' => 'textfield',
-    '#title' => t('/'),
+    '#title' => t('Expiration Year'),
     '#size' => 2,
     '#default_value' => '2020',
     '#attributes' => array(
-      'class' => array('card-expiry-year'),
+      'class' => 'card-expiry-year',
     ),
   );
 
@@ -142,40 +127,56 @@ function stripe_admin_test() {
     '#default_value' => 99,
     '#size' => 6,
     '#attributes' => array(
-      'class' => array('amount'),
+      'class' => 'amount',
     ),
-  );
-
-  // Attach a little custom css.
-  $form['#attached']['css'] = array(
-    drupal_get_path('module', 'stripe') . '/stripe.css',
   );
 
   // Retrieve the active API Key.
   $active_key_name = variable_get('stripe_active_key', '');
   $active_key = variable_get('stripe_' . $active_key_name, '');
-  if ($active_key !== '') {
-    // Add the submit button. Can't submit without a key.
-    $form['card_submit'] = array(
-      '#type' => 'submit',
-      '#value' => t('Submit Payment'),
-      '#attributes' => array(
-        'class' => array('submit-button'),
-      ),
-    );
 
-    // Attach the javascript from Stripe.
-    $form['#attached']['js'] = array(
-      'https://js.stripe.com/v1/' => array(
-        'type' => 'external',
-      ),
-      drupal_get_path('module', 'stripe') . '/stripe.js',
-      // And set our key.
-      'jQuery(document).ready(function () { Stripe.setPublishableKey("' . $active_key . '"); });' => array(
-        'type' => 'inline', 'scope' => 'footer', 'weight' => 5
-      ),
-    );
+  $form_state['storage']['key'] = $active_key;
+  
+  if ($active_key !== '') {
+  	drupal_add_js("Stripe.setPublishableKey('{$active_key}');", 'inline');
+  	
+  	drupal_add_js(drupal_get_path('module', 'stripe') . '/stripe.js', 'file');
+  	
+  	$settings['stripeConfig'] = array();
+	
+		drupal_add_js($settings, 'setting');
   }
+  
+  $form['card_submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit Payment'),
+    '#attributes' => array(
+    'class' => array('submit-button'),
+    ),
+    '#disabled' => ($active_key !== '') ? false : true,
+  );
 
   return $form;
+}
+
+function stripe_admin_menu() {
+
+}
+
+/**
+ * Submit handler for the test form.
+ */
+function stripe_admin_test_submit($form, &$form_state) {
+	$token = $_POST['stripeToken'];
+	
+	Stripe::setApiKey($form_state['storage']['key']);
+	
+	$charge = Stripe_Charge::create(array(
+		"amount" => $form_state['values']['amount'],
+		"currency" => "usd",
+		"card" => $token,
+		"description" => "payinguser@example.com")
+	);
+	
+	dpm($charge);
 }

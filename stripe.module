@@ -35,10 +35,22 @@ function stripe_permission() {
 }
 
 /**
- * Implements hook_theme().
-
-function stripe_theme() {
-
+ * Implementation of hook_init().
+ */
+function stripe_init() {
+	$stripe_lib_path = function_exists('libraries_get_path') ? libraries_get_path('facebook-php-sdk') : 'sites/all/libraries/stripe-php';
+	$stripe_api = variable_get(STRIPE_API_FILE, $stripe_lib_path . '/lib/Stripe.php');
+	
+	try {
+		if( ! class_exists('Stripe') && ! include($stripe_api) ) {
+			drupal_set_message(t('Please install the Stripe PHP library per the instructions in the README.', 'error'));
+			return;
+		}
+		
+		drupal_set_html_head('<script src="'. check_url(url('https://js.stripe.com/v1/', array('query' => $query))) .'" type="text/javascript"></script>');
+	} catch(Exception $e) {
+		watchdog('warn', t('Could not load Stripe library. %e', array('%e' => $e)));
+	}
 }
 
 /**
@@ -49,14 +61,14 @@ function stripe_menu() {
     'title' => 'Stripe',
     'description' => 'List of what the stripe module offers.',
     'position' => 'right',
-    'page callback' => 'system_admin_menu_block_page',
+    'page callback' => 'stripe_admin_menu',
     'access arguments' => array('administer stripe'),
     'weight' => -10,
-    'file' => 'system.admin.inc',
+    'file' => 'stripe.admin.inc',
   );
 
   $items['admin/config/stripe/keys'] = array(
-    'title' => 'API Keys',
+    'title' => 'Configuration',
     'description' => 'Enter API Keys and set which one should be active.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('stripe_admin_keys'),
