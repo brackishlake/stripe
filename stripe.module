@@ -46,6 +46,8 @@ function stripe_init() {
 	} catch(Exception $e) {
 		watchdog('warn', t('Could not load Stripe library. %e', array('%e' => $e)));
 	}
+	
+	module_load_include('inc', 'stripe', 'stripe.util');
 }
 
 /**
@@ -94,118 +96,136 @@ function stripe_menu() {
   	'page arguments' => array('stripe_checkout_form'),
   	'access arguments' => array('access content'),
   );
+  
+  $items['user/%user/payment'] = array(
+  	'type' => MENU_LOCAL_TASK,
+  	'title' => 'Payment',
+  	'page callback' => 'stripe_user_payment_page',
+  	'page arguments' => array(1),
+  	'access callback' => 'stripe_user_payment_access',
+  	'access arguments' => array(1),
+  );
 
   return $items;
 }
 
 /**
- * May be necessary for the future if we want to handle a cart.
- */
-function stripe_checkout_id() {
-	$id = ($GLOBALS['user']->uid > 0) ? $GLOBALS['user']->uid : md5(uniqid(rand(), TRUE));
-	
-	$_SESSION['stripe_id'] = $id;
-	
-  return $id;
-}
-
-/**
- * Helper function to convert between cents and dollars.
- */
-function stripe_transform_amount($amount) {
-	if( (int)$amount == $amount) {
-		$amount = (float)$amount / 100;
-	} else {
-		$amount = $amount * 100;
-	}
-	
-	return $amount;
-}
-
-/**
- * Set the dollar amount and store it in session so it's available to checkout form.
- * Need to really think about the security of this. Although the session value would
- * only be used on the checkout form and used to set the amount in JS for Stripe.
- * The user would see that same amount and confirm the transaction - at which point
- * the session variable is not used. Still, not an area of expertise for me.
  *
- * Always set in CENTS so it's usable on checkout submit.
  */
-function stripe_set_amount($amount) {
-	$_SESSION['stripe_amount'] = (int)stripe_transform_amount((float)$amount);
+function stripe_user_payment_page($uid) {
+	$account = user_load($uid);
+	
+	return 'Hi there.';
+}
+
+/**
+ * Access control for user payments.
+ */
+function stripe_user_payment_access($uid) {
+	$account = user_load($uid);
+
+	return (($GLOBALS['user']->uid == $account->uid) || user_access('administer stripe')) && $account->uid > 0 && stripe_get_customer_id($account->uid) > 0;
 }
 
 /**
  * Create a checkout form and accept an order amount.
  */
 function stripe_checkout_form(&$form_state) {
-	$amount = money_format('$%i', stripe_transform_amount($_SESSION['stripe_amount']));
+	$amount = stripe_get_balance();
+	$formatted_amount = money_format('$%i', $amount);
 	
 	$active_key_name = variable_get('stripe_active_key', '');
-  $active_key = variable_get('stripe_' . $active_key_name, '');
+	$active_key = variable_get('stripe_' . $active_key_name, '');
   
-  if ($active_key !== '' && is_numeric($_SESSION['stripe_amount'])) {
-  	drupal_add_js("Stripe.setPublishableKey('{$active_key}');", 'inline');
+	if ($active_key !== '') {
+		drupal_add_js("Stripe.setPublishableKey('{$active_key}');", 'inline');
+		drupal_add_js(drupal_get_path('module', 'stripe') . '/stripe.js', 'file');
   	
-  	drupal_add_js(drupal_get_path('module', 'stripe') . '/stripe.js', 'file');
-  	
-  	$settings['stripeConfig'] = array();
-	
+		$settings['stripeConfig'] = array();
 		drupal_add_js($settings, 'setting');
-  }
-
-	$form['amount'] = array(
-		'#type' => 'textfield',
-		'#title' => t('Amount'),
-		'#value' => $amount,
-		'#disabled' => TRUE,
-	);
+	}
+  
+  	$form['payment'] = array(
+  		'#value' => t("<p>You are making a payment of <strong>!amount</strong>.</p>", array('!amount' => $formatted_amount)),
+  	);
 	
-	$form['card_number'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Card Number'),
-    '#size' => 20,
-    '#default_value' => '4242424242424242',
-    '#attributes' => array(
-      'autocomplete' => 'off',
-      'class' => 'card-number',
-    ),
-  );
-
-  $form['card_cvc'] = array(
-    '#type' => 'textfield',
-    '#title' => t('CVC'),
-    '#size' => 4,
-    '#default_value' => '123',
-    '#attributes' => array(
-      'autocomplete' => 'off',
-      'class' => 'card-cvc',
-    ),
-  );
-
-  $form['card_expiry_month'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Expiration Month'),
-    '#size' => 2,
-    '#default_value' => '10',
-    '#attributes' => array(
-      'class' => 'card-expiry-month',
-    ),
-  );
-
-  $form['card_expiry_year'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Expiration Year'),
-    '#size' => 2,
-    '#default_value' => '2020',
-    '#attributes' => array(
-      'class' => 'card-expiry-year',
-    ),
-  );
+	if( $customer = stripe_get_customer_id() ) {
+		dpm($customer);
+		
+		$form['reuse'] = array(
+			'#type' => 'checkbox',
+			'#title' => t("Use my existing <strong>!card_type</strong> ending in <strong>!last4</strong>.", array('!card_type' => $customer->card_type, '!last4' => $customer->card_number)),
+			'#default_value' => TRUE,
+			'#disabled' => TRUE,
+		);
+	} else {
+		$form['amount'] = array(
+			'#type' => 'hidden',
+			'#value' => ($amount * 100),
+		);
+		
+		$form['card_name'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Name'),
+		'#attributes' => array(
+		'autocomplete' => 'off',
+		'class' => 'card-name',
+		),
+		);
+		
+		$form['card_number'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Card Number'),
+		'#size' => 20,
+		'#default_value' => '4242424242424242',
+		'#attributes' => array(
+		'autocomplete' => 'off',
+		'class' => 'card-number',
+		),
+		);
+		
+		$form['card_cvc'] = array(
+		'#type' => 'textfield',
+		'#title' => t('CVC'),
+		'#size' => 4,
+		'#default_value' => '123',
+		'#attributes' => array(
+		'autocomplete' => 'off',
+		'class' => 'card-cvc',
+		),
+		);
+		
+		$form['card_expiry_month'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Expiration Month'),
+		'#size' => 2,
+		'#default_value' => '10',
+		'#attributes' => array(
+		'class' => 'card-expiry-month',
+		'name' => '',
+		),
+		);
+		
+		$form['card_expiry_year'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Expiration Year'),
+		'#size' => 2,
+		'#default_value' => '2020',
+		'#attributes' => array(
+		'class' => 'card-expiry-year',
+		),
+		);
+		
+		$form['card_vault'] = array(
+		'#type' => 'checkbox',
+		'#title' => t('Store my card information for future use.'),
+		'#description' => t('You can manage your card information from your account settings.'),
+		);
+	}
   
   $form['submit'] = array(
   	'#type' => 'submit',
-  	'#value' => t('Pay !i', array('!i' => $amount)),
+  	'#value' => t('Pay !i', array('!i' => $formatted_amount)),
   );
 
   return $form;
@@ -217,12 +237,39 @@ function stripe_checkout_form(&$form_state) {
 function stripe_checkout_form_submit($form, &$form_state) {
 	$token = $_POST['stripeToken'];
 	
-	Stripe::setApiKey($form_state['storage']['key']);
+	$active_key_name = variable_get('stripe_active_key', '');
+	$active_key = variable_get('stripe_' . $active_key_name, '');
 	
-	$charge = Stripe_Charge::create(array(
-		"amount" => $_SESSION['stripe_amount'],
-		"currency" => "usd",
-		"card" => $token,
-		"description" => "payinguser@example.com")
-	);
+	Stripe::setApiKey($active_key);
+	
+	if( $form_state['values']['card_vault'] ) {
+		$customer = Stripe_Customer::create(array(
+			'card' => $token,
+		));
+		
+		$charge = Stripe_Charge::create(array(
+			'amount' => $form_state['values']['amount'],
+			'currency' => 'usd',
+			'customer' => $customer->id,
+		));
+		
+		$data = array(
+			'customer_id' => $customer->id,
+			'name' => $charge->card->name,
+			'card_number' => $charge->card->last4,
+			'card_type' => $charge->card->type,
+		);
+		
+		stripe_set_customer_id($GLOBALS['user']->uid, $data);
+	} else {
+		$charge = Stripe_Charge::create(array(
+			'amount' => $form_state['values']['amount'],
+			'currency' => 'usd',
+			'card' => $token,
+		));
+		
+		if($charge->paid) {
+			// Success
+		}
+	}
 }

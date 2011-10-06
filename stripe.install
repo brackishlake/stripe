@@ -1,0 +1,66 @@
+<?php
+
+/**
+ * @file
+ * Install hooks for stripe.module.
+ */
+
+/**
+ * Implementation of hook_schema().
+ */
+function stripe_schema() {
+	$schema = array();
+	
+	$schema['stripe_customers'] = array(
+		'description' => 'Stores customer_id in relation to uid.',
+		'fields' => array(
+			'uid' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+			),
+			'customer_id' => array(
+				'type' => 'varchar',
+				'length' => '255',
+				'default' => NULL,
+			),
+			'name' => array(
+				'type' => 'varchar',
+				'length' => '255',
+			),
+			'card_number' => array(
+				'type' => 'char',
+				'length' => '4',
+			),
+			'card_type' => array(
+				'type' => 'varchar',
+				'length' => '255',
+			),
+		),
+	);
+	
+	$schema['stripe_cart'] = array(
+		'description' => 'Cart for the customer, either by UID or session.',
+		'fields' => array(
+			'cart_id' => array(
+				'type' => 'varchar',
+				'length' => '255',
+			),
+			'amount' => array(
+				'type' => 'numeric',
+				'precision' => 16,
+				'scale' => 2,
+				'not null' => TRUE,
+				'default' => 0.0,
+			),
+		),
+	);
+	
+	return $schema;
+}
+
+/**
+ * Implementation of hook_install().
+ */
+function stripe_install() {
+  drupal_install_schema('stripe');
+}
